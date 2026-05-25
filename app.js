@@ -152,7 +152,7 @@ const state = {
   revealedByPlayer: new Map(),
   rng: mulberry32(2026),
   wheel: {
-    angle: -Math.PI / 2,
+    angle: centeredWheelAngle(TEAMS.length),
     velocity: 0,
     target: null,
     targetTeam: null,
@@ -538,6 +538,7 @@ function prepareDraw() {
   renderOmittedCountries(removed);
   state.eligibleTeams = eligible;
   state.wheelTeams = eligible;
+  state.wheel.angle = centeredWheelAngle(eligible.length);
   state.pendingRemovalCodes = new Set();
   state.draw = players.map((player, index) => ({
     name: player,
@@ -729,6 +730,11 @@ function escapeHtml(value) {
 
 function normalizeAngle(angle) {
   return ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+}
+
+function centeredWheelAngle(count) {
+  const slice = (Math.PI * 2) / Math.max(1, count);
+  return -Math.PI / 2 - slice / 2;
 }
 
 function smoothstep(value) {
@@ -1387,6 +1393,7 @@ function resetApp() {
   state.drawItems = [];
   state.revealedByPlayer = new Map();
   state.wheelTeams = [...TEAMS];
+  state.wheel.angle = centeredWheelAngle(state.wheelTeams.length);
   state.wheel.target = null;
   state.wheel.velocity = 0;
   state.wheel.wallClockStartMs = null;
