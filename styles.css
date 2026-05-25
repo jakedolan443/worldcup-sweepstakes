@@ -411,8 +411,8 @@ button:disabled {
 
 .time-remaining {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  bottom: 12px;
+  left: 12px;
   z-index: 3;
   padding: 6px 9px;
   border: 1px solid rgba(255, 211, 77, 0.44);
@@ -724,6 +724,12 @@ button:disabled {
 
   .wheel-wrap {
     min-height: 320px;
+    padding-top: 34px;
+  }
+
+  .pointer-label {
+    top: max(8px, calc(50% - var(--wheel-radius, 158px) - 36px));
+    max-width: min(88%, 320px);
   }
 
   .active-card {
