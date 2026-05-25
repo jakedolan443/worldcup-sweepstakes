@@ -212,6 +212,7 @@ const ctx = el.canvas.getContext("2d");
 let scheduledStartMs = null;
 let countdownTimer = null;
 let viewerMode = false;
+let flagPreloadPromise = null;
 
 function resizeWheel() {
   const box = el.canvas.parentElement.getBoundingClientRect();
@@ -222,6 +223,23 @@ function resizeWheel() {
 
 function flagUrl(team) {
   return `${FLAG_BASE}${team.flag}.svg`;
+}
+
+function preloadCountryFlags() {
+  if (flagPreloadPromise) return flagPreloadPromise;
+  const seen = new Set();
+  const loads = TEAMS.filter((team) => {
+    if (seen.has(team.flag)) return false;
+    seen.add(team.flag);
+    return true;
+  }).map((team) => new Promise((resolve) => {
+    const image = new Image();
+    image.onload = resolve;
+    image.onerror = resolve;
+    image.src = flagUrl(team);
+  }));
+  flagPreloadPromise = Promise.all(loads);
+  return flagPreloadPromise;
 }
 
 function mulberry32(seed) {
@@ -1296,26 +1314,30 @@ function completeDraw() {
 
 async function runDraw(options = {}) {
   if (state.running) return;
+  state.running = true;
+  state.drawToken += 1;
+  const token = state.drawToken;
+  el.start.disabled = true;
+  el.status.textContent = "Loading";
+  await preloadCountryFlags();
+  if (token !== state.drawToken) return;
   const audio = ensureAudio();
   if (audio && audio.context.state === "suspended") {
     audio.context.resume().catch(() => {
       // Scheduled viewer mode may start without a user gesture; the draw still runs.
     });
   }
-  state.running = true;
   document.querySelector(".app-shell").classList.add("sidebar-hidden");
   window.setTimeout(resizeWheel, 0);
-  state.drawToken += 1;
-  const token = state.drawToken;
-  el.start.disabled = true;
   el.status.textContent = "Drawing";
   el.countdownPanel.hidden = true;
   prepareDraw();
 
   const pace = PACE.dramatic;
   const flatItems = flatDrawItems();
-  const elapsedMs = Math.max(0, options.elapsedMs || 0);
-  const startedAtMs = Number.isFinite(options.startedAtMs) ? options.startedAtMs : Date.now() - elapsedMs;
+  const requestedElapsedMs = Math.max(0, options.elapsedMs || 0);
+  const startedAtMs = Number.isFinite(options.startedAtMs) ? options.startedAtMs : Date.now() - requestedElapsedMs;
+  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
   state.drawStartedAtMs = startedAtMs;
   state.drawTotalMs = drawTotalDuration(flatItems);
   updateTimeRemaining();
@@ -1427,6 +1449,7 @@ function resetApp() {
 
 function init() {
   el.names.value = SAMPLE_NAMES.map((name, index) => name || `Player ${index + 1}`).join("\n");
+  preloadCountryFlags();
   hydrateFromUrl();
   updateSetupPreview();
   state.draw = parsePlayers().map((name) => ({ name, teams: Array.from({ length: currentCountryCount() }) }));
