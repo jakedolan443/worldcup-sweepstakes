@@ -345,7 +345,7 @@ button:disabled {
 .stage-title-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -361,16 +361,16 @@ button:disabled {
 }
 
 .github-source-button {
-  display: grid;
+  display: none;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   color: #ffffff;
   background: linear-gradient(135deg, var(--accent-two), var(--accent));
   border: 1px solid rgba(255, 255, 255, 0.42);
   border-radius: 999px;
-  box-shadow: 0 0 18px rgba(0, 164, 220, 0.38);
+  box-shadow: 0 0 10px rgba(0, 164, 220, 0.30);
   text-decoration: none;
   transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
@@ -384,9 +384,15 @@ button:disabled {
 }
 
 .github-source-button svg {
-  width: 17px;
-  height: 17px;
+  width: 11px;
+  height: 11px;
   fill: currentColor;
+}
+
+@media (min-width: 761px) {
+  .github-source-button {
+    display: grid;
+  }
 }
 
 .draw-layout {
