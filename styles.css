@@ -331,6 +331,24 @@ button:disabled {
   padding-bottom: 0;
 }
 
+.status-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.stage-title-block {
+  min-width: 0;
+}
+
+.stage-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .status-pill {
   min-width: 96px;
   padding: 8px 11px;
@@ -340,6 +358,35 @@ button:disabled {
   font-weight: 900;
   color: #ffffff;
   background: linear-gradient(135deg, var(--accent-two), var(--accent));
+}
+
+.github-source-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--accent-two), var(--accent));
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(0, 164, 220, 0.38);
+  text-decoration: none;
+  transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.github-source-button:hover,
+.github-source-button:focus-visible {
+  background: linear-gradient(135deg, rgba(170, 92, 195, 0.74), rgba(0, 164, 220, 0.66));
+  border-color: rgba(105, 215, 255, 0.78);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.github-source-button svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
 }
 
 .draw-layout {
@@ -827,5 +874,9 @@ button:disabled {
   .stadium-band {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .github-source-button {
+    display: none;
   }
 }
