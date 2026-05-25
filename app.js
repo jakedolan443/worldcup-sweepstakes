@@ -134,11 +134,21 @@ const PACE = {
   }
 };
 
+const BONUS_SELECT_MS = 3000;
+
 const state = {
   wheelTeams: [...TEAMS],
   eligibleTeams: [...TEAMS],
   draw: [],
   removed: [],
+  bonusEnabled: false,
+  bonusTeams: [],
+  bonusDrawItems: [],
+  bonusRecipientIndexes: [],
+  bonusRecipientsRevealed: false,
+  bonusSelecting: false,
+  bonusFlashIndexes: new Set(),
+  bonusByPlayer: new Map(),
   pendingRemovalCodes: new Set(),
   running: false,
   activePlayer: -1,
@@ -185,6 +195,7 @@ const el = {
   playerSetup: document.querySelector("#playerSetup"),
   seed: document.querySelector("#seedInput"),
   countryCount: document.querySelector("#countryCountInput"),
+  bonusRemainders: document.querySelector("#bonusRemaindersInput"),
   setupNote: document.querySelector("#setupNote"),
   omissionPreview: document.querySelector("#omissionPreview"),
   scheduleControls: document.querySelector("#scheduleControls"),
@@ -304,6 +315,10 @@ function currentCountryCount() {
   return clamped;
 }
 
+function shouldAllocateRemainders() {
+  return Boolean(el.bonusRemainders && el.bonusRemainders.checked);
+}
+
 function updateSetupPreview() {
   if (viewerMode) {
     el.playerSetup.hidden = true;
@@ -327,7 +342,7 @@ function updateSetupPreview() {
   const omittedWord = omitted === 1 ? "country" : "countries";
   el.setupNote.textContent = `Each player gets ${count} ${countryWord}. Max ${maxPlayers} players at this setting.`;
   el.omissionPreview.textContent = `${omitted} low-ranking ${omittedWord} will be omitted for evenness`;
-  el.omissionPreview.hidden = omitted === 0;
+  el.omissionPreview.hidden = omitted === 0 || shouldAllocateRemainders();
 }
 
 function hydrateFromUrl() {
@@ -336,11 +351,15 @@ function hydrateFromUrl() {
   const namesParam = params.get("names");
   const start = params.get("start");
   const countries = params.get("countries");
+  const bonus = params.get("bonus");
   if (seed !== null) {
     el.seed.value = seed;
   }
   if (countries !== null) {
     el.countryCount.value = countries;
+  }
+  if (bonus !== null) {
+    el.bonusRemainders.checked = bonus === "1" || bonus === "true";
   }
   if (start) {
     const timestamp = Number(start);
@@ -392,6 +411,11 @@ function buildShareUrl() {
   url.searchParams.set("seed", el.seed.value || "2026");
   url.searchParams.set("names", encodeShareValue(JSON.stringify(currentPlayersForUrl())));
   url.searchParams.set("countries", String(currentCountryCount()));
+  if (shouldAllocateRemainders()) {
+    url.searchParams.set("bonus", "1");
+  } else {
+    url.searchParams.delete("bonus");
+  }
   const startMs = selectedStartMs();
   if (startMs) {
     url.searchParams.set("start", String(startMs));
@@ -515,6 +539,7 @@ function updateTimeRemaining() {
 }
 
 function omittedCountriesForSetup() {
+  if (shouldAllocateRemainders()) return [];
   const players = parsePlayers();
   if (players.length > TEAMS.length) return [];
   const count = currentCountryCount();
@@ -524,7 +549,7 @@ function omittedCountriesForSetup() {
 
 function renderOmittedCountries(teams = omittedCountriesForSetup()) {
   el.omittedList.replaceChildren();
-  if (!viewerMode || teams.length === 0) {
+  if (!viewerMode || teams.length === 0 || shouldAllocateRemainders()) {
     el.omittedPanel.hidden = true;
     return;
   }
@@ -551,9 +576,18 @@ function prepareDraw() {
   const eligible = TEAMS.filter((team) => !removedCodes.has(team.code));
   const rng = mulberry32(hashSeed(el.seed.value));
   const shuffled = shuffle(eligible, rng);
+  const bonusEnabled = shouldAllocateRemainders() && removed.length > 0;
 
   state.removed = removed;
   renderOmittedCountries(removed);
+  state.bonusEnabled = bonusEnabled;
+  state.bonusTeams = bonusEnabled ? [...removed] : [];
+  state.bonusDrawItems = [];
+  state.bonusRecipientIndexes = [];
+  state.bonusRecipientsRevealed = false;
+  state.bonusSelecting = false;
+  state.bonusFlashIndexes = new Set();
+  state.bonusByPlayer = new Map();
   state.eligibleTeams = eligible;
   state.wheelTeams = eligible;
   state.wheel.angle = centeredWheelAngle(eligible.length);
@@ -565,6 +599,10 @@ function prepareDraw() {
   state.revealedByPlayer = new Map(state.draw.map((_, index) => [index, []]));
   state.rng = rng;
   state.drawItems = buildPhysicalDrawItems();
+  if (bonusEnabled) {
+    state.bonusRecipientIndexes = shuffle(state.draw.map((_, index) => index), state.rng).slice(0, removed.length);
+    state.bonusDrawItems = buildBonusDrawItems();
+  }
 
 }
 
@@ -574,6 +612,8 @@ function renderCards() {
   el.grid.style.setProperty("--player-count", Math.max(1, state.draw.length));
   const maxRounds = Math.max(currentCountryCount(), ...state.draw.map((entry) => entry.teams.length));
   el.grid.style.setProperty("--country-count", Math.max(1, maxRounds));
+  const showBonus = state.bonusEnabled && state.bonusTeams.length > 0;
+  el.grid.classList.toggle("has-bonus", showBonus);
 
   const header = document.createElement("div");
   header.className = "results-row results-head";
@@ -585,14 +625,23 @@ function renderCards() {
     label.textContent = `Spin ${teamIndex + 1}`;
     header.append(label);
   }
+  if (showBonus) {
+    const label = document.createElement("span");
+    label.textContent = "Bonus";
+    header.append(label);
+  }
   el.grid.append(header);
 
   state.draw.forEach((entry, playerIndex) => {
     const row = document.createElement("article");
     row.className = "results-row";
     if (playerIndex === state.activePlayer) row.classList.add("active");
+    if (state.bonusFlashIndexes.has(playerIndex)) row.classList.add("bonus-flash");
+    const bonusWinner = state.bonusRecipientIndexes.includes(playerIndex);
+    if (state.bonusRecipientsRevealed && bonusWinner) row.classList.add("bonus-winner");
     const revealed = state.revealedByPlayer.get(playerIndex) || [];
-    if (revealed.length === entry.teams.length) row.classList.add("done");
+    const bonusComplete = !showBonus || !state.bonusRecipientsRevealed || !bonusWinner || state.bonusByPlayer.has(playerIndex);
+    if (revealed.length === entry.teams.length && bonusComplete) row.classList.add("done");
 
     const name = document.createElement("span");
     name.className = "player-name";
@@ -610,6 +659,20 @@ function renderCards() {
       row.append(cell);
     }
 
+    if (showBonus) {
+      const cell = document.createElement("span");
+      const bonusTeam = state.bonusByPlayer.get(playerIndex);
+      cell.className = `result-cell${bonusTeam ? "" : " pending"}`;
+      if (bonusTeam) {
+        cell.append(countryBadge(bonusTeam));
+      } else if (state.bonusRecipientsRevealed) {
+        cell.textContent = bonusWinner ? "Waiting" : "No bonus";
+      } else {
+        cell.textContent = "Pending";
+      }
+      row.append(cell);
+    }
+
     el.grid.append(row);
   });
 }
@@ -619,6 +682,10 @@ function renderActiveCard() {
   const revealed = state.revealedByPlayer.get(state.activePlayer) || [];
   el.activeCard.classList.toggle("spinning", state.wheel.spinning);
   if (!entry) {
+    if (state.bonusSelecting) {
+      el.activeCard.innerHTML = `<p class="eyebrow">Current player</p><h2>Bonus draw</h2><div class="active-teams"></div>`;
+      return;
+    }
     const finished = !state.running && state.draw.length > 0 && state.draw.every((drawEntry, index) => {
       const playerRevealed = state.revealedByPlayer.get(index) || [];
       return drawEntry.teams.length > 0 && playerRevealed.length === drawEntry.teams.length;
@@ -629,13 +696,20 @@ function renderActiveCard() {
 
   const teams = document.createElement("div");
   teams.className = "active-teams";
-  teams.style.setProperty("--active-slot-count", Math.max(1, entry.teams.length));
+  const showBonus = state.bonusEnabled && state.bonusTeams.length > 0;
+  teams.style.setProperty("--active-slot-count", Math.max(1, entry.teams.length + (showBonus ? 1 : 0)));
   entry.teams.forEach((_, teamIndex) => {
     const isCurrent = state.activeItem
       && state.activeItem.playerIndex === state.activePlayer
       && state.activeItem.teamIndex === teamIndex;
     teams.append(teamReveal(revealed[teamIndex], teamIndex, isCurrent));
   });
+  if (showBonus) {
+    const isCurrentBonus = state.activeItem
+      && state.activeItem.bonus
+      && state.activeItem.playerIndex === state.activePlayer;
+    teams.append(teamReveal(state.bonusByPlayer.get(state.activePlayer), "Bonus", isCurrentBonus));
+  }
 
   el.activeCard.replaceChildren();
   const eyebrow = document.createElement("p");
@@ -644,7 +718,12 @@ function renderActiveCard() {
   const title = document.createElement("h2");
   title.textContent = entry.name;
   el.activeCard.append(eyebrow, title);
-  if (entry.teams.length > 1) {
+  if (state.activeItem && state.activeItem.bonus) {
+    const pickStatus = document.createElement("p");
+    pickStatus.className = "pick-status";
+    pickStatus.textContent = "Bonus spin";
+    el.activeCard.append(pickStatus);
+  } else if (entry.teams.length > 1) {
     const pickStatus = document.createElement("p");
     pickStatus.className = "pick-status";
     let currentPick = Math.min(revealed.length + 1, Math.max(1, entry.teams.length));
@@ -664,7 +743,7 @@ function teamReveal(team, teamIndex = 0, isCurrent = false) {
   item.className = `team-reveal${team ? "" : " empty"}${isCurrent ? " current" : ""}`;
   const label = document.createElement("span");
   label.className = "spin-label";
-  label.textContent = `Spin ${teamIndex + 1}`;
+  label.textContent = typeof teamIndex === "number" ? `Spin ${teamIndex + 1}` : teamIndex;
   item.append(label);
   if (team) {
     item.append(countryBadge(team));
@@ -1124,6 +1203,10 @@ function drawTotalDuration(flatItems) {
   return flatItems.reduce((total, item) => total + itemSlotDuration(item), 0);
 }
 
+function bonusTotalDuration() {
+  return state.bonusDrawItems.length ? BONUS_SELECT_MS + drawTotalDuration(state.bonusDrawItems) : 0;
+}
+
 function drawPositionForElapsed(flatItems, elapsedMs) {
   const clampedElapsed = Math.max(0, elapsedMs);
   let cursor = 0;
@@ -1165,8 +1248,43 @@ function applyDrawProgress(flatItems, itemIndex) {
   }
 }
 
+function revealItem(item, landedTeam = item.team) {
+  if (item.bonus) {
+    revealBonusItem(item, landedTeam);
+  } else {
+    revealFlatItem(item, landedTeam);
+  }
+}
+
+function revealBonusItem(item, landedTeam = item.team) {
+  if (!state.bonusByPlayer.has(item.playerIndex)) {
+    state.bonusByPlayer.set(item.playerIndex, landedTeam);
+    state.pendingRemovalCodes.add(landedTeam.code);
+  }
+}
+
+function applyBonusProgress(flatItems, itemIndex) {
+  state.wheelTeams = [...state.bonusTeams];
+  state.pendingRemovalCodes = new Set();
+  state.bonusByPlayer = new Map();
+
+  for (let index = 0; index < Math.min(itemIndex, flatItems.length); index += 1) {
+    revealBonusItem(flatItems[index]);
+    removePendingSlices();
+  }
+
+  const currentItem = itemIndex < flatItems.length ? flatItems[itemIndex] : null;
+  if (currentItem) {
+    state.wheelTeams = [...currentItem.wheelTeams];
+  }
+}
+
 function flatDrawItems() {
   if (state.drawItems.length) return state.drawItems;
+  return buildRegularBaseItems();
+}
+
+function buildRegularBaseItems() {
   const maxRounds = Math.max(0, ...state.draw.map((entry) => entry.teams.length));
   const items = [];
   for (let teamIndex = 0; teamIndex < maxRounds; teamIndex += 1) {
@@ -1181,56 +1299,64 @@ function flatDrawItems() {
 }
 
 function buildPhysicalDrawItems() {
-  const maxRounds = Math.max(0, ...state.draw.map((entry) => entry.teams.length));
-  const simulatedWheel = [...state.wheelTeams];
-  let simulatedAngle = state.wheel.angle;
+  return buildPhysicalItems(buildRegularBaseItems(), state.wheelTeams, state.wheel.angle);
+}
+
+function buildBonusDrawItems() {
+  const items = state.bonusRecipientIndexes.map((playerIndex, bonusIndex) => ({
+    entry: state.draw[playerIndex],
+    playerIndex,
+    teamIndex: 0,
+    bonusIndex,
+    bonus: true,
+    team: state.bonusTeams[bonusIndex]
+  }));
+  return buildPhysicalItems(items, state.bonusTeams, centeredWheelAngle(state.bonusTeams.length));
+}
+
+function buildPhysicalItems(baseItems, initialTeams, initialAngle) {
+  const simulatedWheel = [...initialTeams];
+  let simulatedAngle = initialAngle;
   const items = [];
 
-  for (let round = 0; round < maxRounds; round += 1) {
-    state.draw.forEach((entry, playerIndex) => {
-      if (!entry.teams[round]) return;
+  baseItems.forEach((baseItem) => {
+    let throwVelocity = PACE.dramatic.wheelImpulse;
+    let landed;
+    const wheelTeams = [...simulatedWheel];
+    const startAngle = simulatedAngle;
+    const autoAssign = wheelTeams.length === 1;
 
-      let throwVelocity = PACE.dramatic.wheelImpulse;
-      let landed;
-      const wheelTeams = [...simulatedWheel];
-      const startAngle = simulatedAngle;
-      const autoAssign = wheelTeams.length === 1;
-
-      if (autoAssign) {
-        landed = {
-          index: 0,
-          angle: simulatedAngle,
-          elapsedMs: 0
-        };
-      } else {
-        for (let attempt = 0; attempt < 80; attempt += 1) {
-          throwVelocity = PACE.dramatic.wheelImpulse + state.rng() * 9.5 + attempt * 0.17;
-          landed = simulateLanding(wheelTeams, startAngle, throwVelocity);
-          const candidate = wheelTeams[landed.index];
-          if (candidate) break;
-        }
+    if (autoAssign) {
+      landed = {
+        index: 0,
+        angle: simulatedAngle,
+        elapsedMs: 0
+      };
+    } else {
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        throwVelocity = PACE.dramatic.wheelImpulse + state.rng() * 9.5 + attempt * 0.17;
+        landed = simulateLanding(wheelTeams, startAngle, throwVelocity);
+        const candidate = wheelTeams[landed.index];
+        if (candidate) break;
       }
+    }
 
-      simulatedAngle = landed.angle;
-      const team = wheelTeams[landed.index];
-      items.push({
-        entry,
-        playerIndex,
-        teamIndex: round,
-        round,
-        team,
-        throwVelocity,
-        wheelTeams,
-        startAngle,
-        landingAngle: landed.angle,
-        spinDurationMs: landed.elapsedMs,
-        autoAssign
-      });
-
-      const index = simulatedWheel.findIndex((wheelTeam) => wheelTeam.code === team.code);
-      if (index >= 0) simulatedWheel.splice(index, 1);
+    simulatedAngle = landed.angle;
+    const team = wheelTeams[landed.index];
+    items.push({
+      ...baseItem,
+      team,
+      throwVelocity,
+      wheelTeams,
+      startAngle,
+      landingAngle: landed.angle,
+      spinDurationMs: landed.elapsedMs,
+      autoAssign
     });
-  }
+
+    const index = simulatedWheel.findIndex((wheelTeam) => wheelTeam.code === team.code);
+    if (index >= 0) simulatedWheel.splice(index, 1);
+  });
 
   return items;
 }
@@ -1312,6 +1438,91 @@ function completeDraw() {
   renderActiveCard();
 }
 
+async function runBonusPhase(token, bonusStartAtMs) {
+  if (!state.bonusDrawItems.length) return;
+  await delayUntil(bonusStartAtMs);
+  if (token !== state.drawToken) return;
+  state.activePlayer = -1;
+  state.activeItem = null;
+  state.wheelTeams = [...state.bonusTeams];
+  state.wheel.angle = centeredWheelAngle(state.wheelTeams.length);
+  state.bonusSelecting = true;
+  el.status.textContent = "Bonus";
+  el.stageTitle.textContent = "Bonus draw";
+  updateTimeRemaining();
+
+  const selectionEndAtMs = bonusStartAtMs + BONUS_SELECT_MS;
+  if (Date.now() < selectionEndAtMs) {
+    while (Date.now() < selectionEndAtMs) {
+      if (token !== state.drawToken) return;
+      const flashCount = Math.max(1, Math.min(state.draw.length, state.bonusTeams.length));
+      state.bonusFlashIndexes = new Set(shuffle(state.draw.map((_, index) => index), mulberry32(hashSeed(`${el.seed.value}:bonus:${Date.now() >> 7}`))).slice(0, flashCount));
+      renderCards();
+      renderActiveCard();
+      await delay(120);
+    }
+  }
+
+  state.bonusSelecting = false;
+  state.bonusRecipientsRevealed = true;
+  state.bonusFlashIndexes = new Set(state.bonusRecipientIndexes);
+  renderCards();
+  renderActiveCard();
+  await delay(Math.max(0, selectionEndAtMs - Date.now()));
+  state.bonusFlashIndexes = new Set();
+
+  while (true) {
+    const position = drawPositionForElapsed(state.bonusDrawItems, Date.now() - selectionEndAtMs);
+    const itemIndex = position.itemIndex;
+    const inSlotMs = position.inSlotMs;
+    applyBonusProgress(state.bonusDrawItems, itemIndex);
+
+    if (itemIndex >= state.bonusDrawItems.length) {
+      return;
+    }
+
+    const item = state.bonusDrawItems[itemIndex];
+    const itemStartAtMs = selectionEndAtMs + position.itemStartMs;
+    const spinDurationMs = position.spinMs;
+    const itemEndAtMs = itemStartAtMs + position.slotMs;
+    state.activePlayer = item.playerIndex;
+    state.activeItem = item;
+    el.stageTitle.textContent = `Bonus drawing: ${item.entry.name}`;
+    renderCards();
+    renderActiveCard();
+    updateTimeRemaining();
+
+    if (inSlotMs < spinDurationMs) {
+      const landedTeam = await spinTo(item.team, {
+        elapsedMs: inSlotMs,
+        spinMs: PACE.dramatic.spinMs,
+        throwVelocity: item.throwVelocity,
+        wheelTeams: item.wheelTeams,
+        startAngle: item.startAngle,
+        landingAngle: item.landingAngle,
+        wallClockStartMs: itemStartAtMs,
+        deadlineMs: itemStartAtMs + spinDurationMs
+      });
+      if (token !== state.drawToken) return;
+      revealBonusItem(item, landedTeam || item.team);
+      renderCards();
+      renderActiveCard();
+      await delay(Math.max(PACE.dramatic.pause, itemEndAtMs - Date.now()));
+    } else {
+      state.wheelTeams = [...item.wheelTeams];
+      state.wheel.angle = item.landingAngle;
+      revealBonusItem(item);
+      renderCards();
+      renderActiveCard();
+      await delayUntil(itemEndAtMs);
+    }
+
+    if (token !== state.drawToken) return;
+    renderCards();
+    renderActiveCard();
+  }
+}
+
 async function runDraw(options = {}) {
   if (state.running) return;
   state.running = true;
@@ -1337,9 +1548,9 @@ async function runDraw(options = {}) {
   const flatItems = flatDrawItems();
   const requestedElapsedMs = Math.max(0, options.elapsedMs || 0);
   const startedAtMs = Number.isFinite(options.startedAtMs) ? options.startedAtMs : Date.now() - requestedElapsedMs;
-  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
   state.drawStartedAtMs = startedAtMs;
-  state.drawTotalMs = drawTotalDuration(flatItems);
+  const regularTotalMs = drawTotalDuration(flatItems);
+  state.drawTotalMs = regularTotalMs + bonusTotalDuration();
   updateTimeRemaining();
 
   renderCards();
@@ -1351,6 +1562,8 @@ async function runDraw(options = {}) {
     applyDrawProgress(flatItems, itemIndex);
 
     if (itemIndex >= flatItems.length) {
+      await runBonusPhase(token, startedAtMs + regularTotalMs);
+      if (token !== state.drawToken) return;
       completeDraw();
       return;
     }
@@ -1378,14 +1591,14 @@ async function runDraw(options = {}) {
         deadlineMs: itemStartAtMs + spinDurationMs
       });
       if (token !== state.drawToken) return;
-      revealFlatItem(item, landedTeam || item.team);
+      revealItem(item, landedTeam || item.team);
       renderCards();
       renderActiveCard();
       await delay(Math.max(pace.pause, itemEndAtMs - Date.now()));
     } else {
       state.wheelTeams = [...item.wheelTeams];
       state.wheel.angle = item.landingAngle;
-      revealFlatItem(item);
+      revealItem(item);
       renderCards();
       renderActiveCard();
       await delayUntil(itemEndAtMs);
@@ -1411,6 +1624,14 @@ function resetApp() {
   updateSetupPreview();
   state.draw = parsePlayers().map((name) => ({ name, teams: Array.from({ length: currentCountryCount() }) }));
   state.removed = [];
+  state.bonusEnabled = false;
+  state.bonusTeams = [];
+  state.bonusDrawItems = [];
+  state.bonusRecipientIndexes = [];
+  state.bonusRecipientsRevealed = false;
+  state.bonusSelecting = false;
+  state.bonusFlashIndexes = new Set();
+  state.bonusByPlayer = new Map();
   state.pendingRemovalCodes = new Set();
   state.drawItems = [];
   state.revealedByPlayer = new Map();
@@ -1480,6 +1701,13 @@ function handleCountryCountChange() {
 }
 el.countryCount.addEventListener("input", handleCountryCountChange);
 el.countryCount.addEventListener("change", handleCountryCountChange);
+el.bonusRemainders.addEventListener("change", () => {
+  updateSetupPreview();
+  renderOmittedCountries();
+  if (!state.running) {
+    renderCards();
+  }
+});
 
 el.start.addEventListener("click", () => {
   runDraw().catch(handleDrawError);
