@@ -714,7 +714,8 @@ function renderCards() {
     if (showBonus) {
       const cell = document.createElement("span");
       const bonusTeam = state.bonusByPlayer.get(playerIndex);
-      cell.className = `result-cell${bonusTeam ? "" : " pending"}`;
+      const pendingBonus = state.bonusRecipientsRevealed && bonusWinner && !bonusTeam;
+      cell.className = `result-cell${bonusTeam ? "" : " pending"}${pendingBonus ? " bonus-pending" : ""}`;
       if (bonusTeam) {
         cell.append(countryBadge(bonusTeam));
       } else if (state.bonusRecipientsRevealed) {
