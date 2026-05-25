@@ -30,7 +30,7 @@ const TEAMS = [
   { name: "Egypt", code: "EGY", flag: "eg", confed: "CAF", rank: 29, points: 1563.24 },
   { name: "Canada", code: "CAN", flag: "ca", confed: "CONCACAF", rank: 30, points: 1556.48 },
   { name: "Norway", code: "NOR", flag: "no", confed: "UEFA", rank: 31, points: 1550.94 },
-  { name: "Panama", code: "PAN", flag: "pa", confed: "CONCACAF", rank: 33, points: 1540.64 },
+  { name: "Panama", code: "PAN", flag: "pa", confed: "CONCACAF", rank: 74, points: 1346.31 },
   { name: "Cote d'Ivoire", code: "CIV", flag: "ci", confed: "CAF", rank: 34, points: 1532.98 },
   { name: "Sweden", code: "SWE", flag: "se", confed: "UEFA", rank: 38, points: 1514.77 },
   { name: "Paraguay", code: "PAR", flag: "py", confed: "CONMEBOL", rank: 40, points: 1503.50 },
@@ -46,7 +46,7 @@ const TEAMS = [
   { name: "Jordan", code: "JOR", flag: "jo", confed: "AFC", rank: 63, points: 1391.45 },
   { name: "Bosnia and Herzegovina", code: "BIH", flag: "ba", confed: "UEFA", rank: 65, points: 1385.84 },
   { name: "Cabo Verde", code: "CPV", flag: "cv", confed: "CAF", rank: 69, points: 1366.13 },
-  { name: "Ghana", code: "GHA", flag: "gh", confed: "CAF", rank: 74, points: 1346.31 },
+  { name: "Ghana", code: "GHA", flag: "gh", confed: "CAF", rank: 33, points: 1540.64 },
   { name: "Curacao", code: "CUW", flag: "cw", confed: "CONCACAF", rank: 82, points: 1294.65 },
   { name: "Haiti", code: "HAI", flag: "ht", confed: "CONCACAF", rank: 83, points: 1291.71 },
   { name: "New Zealand", code: "NZL", flag: "nz", confed: "OFC", rank: 85, points: 1281.57 }
@@ -141,6 +141,9 @@ const state = {
   eligibleTeams: [...TEAMS],
   draw: [],
   removed: [],
+  fairEnabled: false,
+  fairBuckets: [],
+  spinLabels: [],
   bonusEnabled: false,
   bonusTeams: [],
   bonusDrawItems: [],
@@ -196,6 +199,7 @@ const el = {
   seed: document.querySelector("#seedInput"),
   countryCount: document.querySelector("#countryCountInput"),
   bonusRemainders: document.querySelector("#bonusRemaindersInput"),
+  fairDraw: document.querySelector("#fairDrawInput"),
   setupNote: document.querySelector("#setupNote"),
   omissionPreview: document.querySelector("#omissionPreview"),
   scheduleControls: document.querySelector("#scheduleControls"),
@@ -319,6 +323,10 @@ function shouldAllocateRemainders() {
   return Boolean(el.bonusRemainders && el.bonusRemainders.checked);
 }
 
+function shouldUseFairDraw() {
+  return Boolean(el.fairDraw && el.fairDraw.checked);
+}
+
 function updateSetupPreview() {
   if (viewerMode) {
     el.playerSetup.hidden = true;
@@ -352,6 +360,7 @@ function hydrateFromUrl() {
   const start = params.get("start");
   const countries = params.get("countries");
   const bonus = params.get("bonus");
+  const fair = params.get("fair");
   if (seed !== null) {
     el.seed.value = seed;
   }
@@ -360,6 +369,9 @@ function hydrateFromUrl() {
   }
   if (bonus !== null) {
     el.bonusRemainders.checked = bonus === "1" || bonus === "true";
+  }
+  if (fair !== null) {
+    el.fairDraw.checked = fair === "1" || fair === "true";
   }
   if (start) {
     const timestamp = Number(start);
@@ -415,6 +427,11 @@ function buildShareUrl() {
     url.searchParams.set("bonus", "1");
   } else {
     url.searchParams.delete("bonus");
+  }
+  if (shouldUseFairDraw()) {
+    url.searchParams.set("fair", "1");
+  } else {
+    url.searchParams.delete("fair");
   }
   const startMs = selectedStartMs();
   if (startMs) {
@@ -562,6 +579,40 @@ function renderOmittedCountries(teams = omittedCountriesForSetup()) {
   el.omittedPanel.hidden = false;
 }
 
+function buildDrawEntries(players, teams, countriesPerPlayer, rng, fairEnabled) {
+  if (!fairEnabled) {
+    const shuffled = shuffle(teams, rng);
+    return {
+      draw: players.map((player, index) => ({
+        name: player,
+        teams: shuffled.slice(index * countriesPerPlayer, (index + 1) * countriesPerPlayer)
+      })),
+      fairBuckets: [],
+      spinLabels: []
+    };
+  }
+
+  const playerCount = players.length;
+  const weakestFirst = [...teams].sort((a, b) => b.rank - a.rank);
+  const fairBuckets = [];
+  const spinLabels = [];
+  const draw = players.map((player) => ({
+    name: player,
+    teams: []
+  }));
+
+  for (let round = 0; round < countriesPerPlayer; round += 1) {
+    const bucket = weakestFirst.slice(round * playerCount, (round + 1) * playerCount);
+    fairBuckets.push(bucket);
+    spinLabels.push(`Spin Top ${(countriesPerPlayer - round) * playerCount}`);
+    shuffle(bucket, rng).forEach((team, playerIndex) => {
+      draw[playerIndex].teams[round] = team;
+    });
+  }
+
+  return { draw, fairBuckets, spinLabels };
+}
+
 function prepareDraw() {
   const players = parsePlayers();
   if (players.length > TEAMS.length) {
@@ -575,11 +626,15 @@ function prepareDraw() {
   const removedCodes = new Set(removed.map((team) => team.code));
   const eligible = TEAMS.filter((team) => !removedCodes.has(team.code));
   const rng = mulberry32(hashSeed(el.seed.value));
-  const shuffled = shuffle(eligible, rng);
   const bonusEnabled = shouldAllocateRemainders() && removed.length > 0;
+  const fairEnabled = shouldUseFairDraw();
+  const drawPlan = buildDrawEntries(players, eligible, countriesPerPlayer, rng, fairEnabled);
 
   state.removed = removed;
   renderOmittedCountries(removed);
+  state.fairEnabled = fairEnabled;
+  state.fairBuckets = drawPlan.fairBuckets;
+  state.spinLabels = drawPlan.spinLabels;
   state.bonusEnabled = bonusEnabled;
   state.bonusTeams = bonusEnabled ? [...removed] : [];
   state.bonusDrawItems = [];
@@ -589,13 +644,10 @@ function prepareDraw() {
   state.bonusFlashIndexes = new Set();
   state.bonusByPlayer = new Map();
   state.eligibleTeams = eligible;
-  state.wheelTeams = eligible;
-  state.wheel.angle = centeredWheelAngle(eligible.length);
+  state.wheelTeams = fairEnabled && drawPlan.fairBuckets.length ? drawPlan.fairBuckets[0] : eligible;
+  state.wheel.angle = centeredWheelAngle(state.wheelTeams.length);
   state.pendingRemovalCodes = new Set();
-  state.draw = players.map((player, index) => ({
-    name: player,
-    teams: shuffled.slice(index * countriesPerPlayer, (index + 1) * countriesPerPlayer)
-  }));
+  state.draw = drawPlan.draw;
   state.revealedByPlayer = new Map(state.draw.map((_, index) => [index, []]));
   state.rng = rng;
   state.drawItems = buildPhysicalDrawItems();
@@ -622,7 +674,7 @@ function renderCards() {
   header.append(playerHead);
   for (let teamIndex = 0; teamIndex < maxRounds; teamIndex += 1) {
     const label = document.createElement("span");
-    label.textContent = `Spin ${teamIndex + 1}`;
+    label.textContent = state.spinLabels[teamIndex] || `Spin ${teamIndex + 1}`;
     header.append(label);
   }
   if (showBonus) {
@@ -702,7 +754,7 @@ function renderActiveCard() {
     const isCurrent = state.activeItem
       && state.activeItem.playerIndex === state.activePlayer
       && state.activeItem.teamIndex === teamIndex;
-    teams.append(teamReveal(revealed[teamIndex], teamIndex, isCurrent));
+    teams.append(teamReveal(revealed[teamIndex], state.spinLabels[teamIndex] || teamIndex, isCurrent));
   });
   if (showBonus) {
     const isCurrentBonus = state.activeItem
@@ -1233,7 +1285,7 @@ function drawPositionForElapsed(flatItems, elapsedMs) {
 }
 
 function applyDrawProgress(flatItems, itemIndex) {
-  state.wheelTeams = [...state.eligibleTeams];
+  state.wheelTeams = state.fairEnabled && state.fairBuckets.length ? [...state.fairBuckets[0]] : [...state.eligibleTeams];
   state.pendingRemovalCodes = new Set();
   state.revealedByPlayer = new Map(state.draw.map((_, index) => [index, []]));
 
@@ -1299,7 +1351,22 @@ function buildRegularBaseItems() {
 }
 
 function buildPhysicalDrawItems() {
+  if (state.fairEnabled) {
+    return buildFairPhysicalDrawItems();
+  }
   return buildPhysicalItems(buildRegularBaseItems(), state.wheelTeams, state.wheel.angle);
+}
+
+function buildFairPhysicalDrawItems() {
+  return state.fairBuckets.flatMap((bucket, round) => {
+    const items = state.draw.map((entry, playerIndex) => ({
+      entry,
+      playerIndex,
+      teamIndex: round,
+      team: entry.teams[round]
+    })).filter((item) => item.team);
+    return buildPhysicalItems(items, bucket, centeredWheelAngle(bucket.length));
+  });
 }
 
 function buildBonusDrawItems() {
@@ -1624,6 +1691,9 @@ function resetApp() {
   updateSetupPreview();
   state.draw = parsePlayers().map((name) => ({ name, teams: Array.from({ length: currentCountryCount() }) }));
   state.removed = [];
+  state.fairEnabled = false;
+  state.fairBuckets = [];
+  state.spinLabels = [];
   state.bonusEnabled = false;
   state.bonusTeams = [];
   state.bonusDrawItems = [];
@@ -1704,6 +1774,12 @@ el.countryCount.addEventListener("change", handleCountryCountChange);
 el.bonusRemainders.addEventListener("change", () => {
   updateSetupPreview();
   renderOmittedCountries();
+  if (!state.running) {
+    renderCards();
+  }
+});
+el.fairDraw.addEventListener("change", () => {
+  updateSetupPreview();
   if (!state.running) {
     renderCards();
   }
