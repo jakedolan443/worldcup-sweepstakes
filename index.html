@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>World Cup Sweepstakes Draw</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="control-panel" aria-label="Draw controls">
+        <div class="brand-block">
+          <p class="eyebrow">World Cup Sweepstakes</p>
+          <h1>Live Lotto Draw</h1>
+        </div>
+
+        <div id="playerSetup" class="player-setup">
+          <label class="field-label" for="playerNames">Player names</label>
+          <p class="setup-note" id="setupNote">Each player gets 2 countries.</p>
+          <textarea id="playerNames" spellcheck="false" rows="17"></textarea>
+          <p class="omission-preview" id="omissionPreview" aria-live="polite"></p>
+        </div>
+
+        <div class="control-grid" id="scheduleControls">
+          <label class="field-label" id="countryCountField" for="countryCountInput">
+            Countries each
+            <input id="countryCountInput" type="number" value="2" min="1" step="1">
+          </label>
+          <label class="field-label" id="seedField" for="seedInput">
+            Seed
+            <input id="seedInput" type="text" value="2026">
+          </label>
+          <label class="field-label" id="startTimeField" for="startTimeInput">
+            Start time
+            <input id="startTimeInput" type="datetime-local">
+          </label>
+          <div class="quick-times" aria-label="Quick start times">
+            <button type="button" data-start-offset="5">+5m</button>
+            <button type="button" data-start-offset="30">+30m</button>
+            <button type="button" data-start-offset="60">+1h</button>
+            <button type="button" data-start-offset="1440">+1d</button>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="startButton" class="primary-button" type="button">Kick Off Spin</button>
+          <button id="shareButton" class="secondary-button" type="button">Share Link</button>
+          <button id="resetButton" class="secondary-button" type="button">Reset</button>
+        </div>
+
+        <div id="omittedPanel" class="omitted-panel" hidden>
+          <p class="eyebrow">Countries omitted</p>
+          <div id="omittedList" class="omitted-list"></div>
+        </div>
+
+        <div id="countdownPanel" class="countdown-panel" hidden>
+          <span>Draw starts in</span>
+          <strong id="countdownClock">--:--</strong>
+        </div>
+      </section>
+
+      <section class="draw-stage" aria-label="Sweepstakes draw">
+        <div class="stadium-band">
+          <div>
+            <p class="eyebrow">2026 qualified teams</p>
+            <h2 id="stageTitle">Ready for the draw</h2>
+          </div>
+          <div id="statusPill" class="status-pill">Idle</div>
+        </div>
+
+        <div class="draw-layout">
+          <div class="wheel-column">
+            <div class="wheel-wrap">
+              <canvas id="wheelCanvas" width="520" height="520" aria-label="Physics sweepstakes wheel"></canvas>
+              <div id="timeRemaining" class="time-remaining" hidden>Time Remaining: --</div>
+              <div id="pointerLabel" class="pointer-label">Ready</div>
+              <div class="pointer" aria-hidden="true"></div>
+            </div>
+
+            <div class="active-card" id="activeCard">
+              <p class="eyebrow">Current player</p>
+              <h2>No spin yet</h2>
+              <div class="active-teams"></div>
+            </div>
+          </div>
+
+          <div class="cards-panel">
+            <div class="cards-heading">
+              <p class="eyebrow">Players</p>
+              <span id="cardsCount">0</span>
+            </div>
+            <div id="cardsGrid" class="cards-grid" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

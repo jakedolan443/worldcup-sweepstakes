@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.codex
+README.md
+
+# Generated local outputs from the optional MP4 renderer.
+world_cup_sweepstakes_draw.mp4
+world_cup_sweepstakes_draw.results.json
