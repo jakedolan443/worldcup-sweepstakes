@@ -334,7 +334,7 @@ button:disabled {
 .status-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 auto;
 }
 
@@ -367,18 +367,18 @@ button:disabled {
   height: 18px;
   flex: 0 0 auto;
   color: #ffffff;
-  background: linear-gradient(135deg, var(--accent-two), var(--accent));
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: #05070d;
+  border: 1px solid rgba(255, 255, 255, 0.34);
   border-radius: 999px;
-  box-shadow: 0 0 10px rgba(0, 164, 220, 0.30);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.38);
   text-decoration: none;
-  transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
+  transition: transform 140ms ease, background-color 140ms ease, border-color 140ms ease, opacity 140ms ease;
 }
 
 .github-source-button:hover,
 .github-source-button:focus-visible {
-  background: linear-gradient(135deg, rgba(170, 92, 195, 0.74), rgba(0, 164, 220, 0.66));
-  border-color: rgba(105, 215, 255, 0.78);
+  background: #111827;
+  border-color: rgba(255, 255, 255, 0.58);
   transform: translateY(-1px);
   outline: none;
 }
